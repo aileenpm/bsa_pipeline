@@ -1,0 +1,687 @@
+---
+title: "09-new-snp-allele-freq"
+author: "Aileen"
+date: "2025-05-07"
+output: html_document
+---
+
+---
+
+## 🔁 1. Load Libraries
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(patchwork)
+```
+
+---
+
+## 📥 2. Load Data (Assumes Header Trimmed via `grep -v "##"` Already)
+
+```{r}
+Sarisha_snps_only <- read_tsv("data/new_filtered_vcfs/sarisha_filtered_clean.vcf")
+early_snps <- read_tsv("data/new_filtered_vcfs/early_pool_filtered_clean.vcf")
+late_snps <- read_tsv("data/new_filtered_vcfs/late_pool_filtered_clean.vcf")
+
+```
+
+---
+
+## 🔍 3. Extract Good SNPs from Sarisha
+
+```{r}
+sarisha <- Sarisha_snps_only %>%
+  rename(CHR = `#CHROM`) %>%
+  select(CHR, POS, unknown) %>%
+  separate(unknown, into = c("GT", NA, "AD", NA, NA, NA, NA), sep = ":", remove = FALSE) %>%
+  separate(AD, into = c("AD_1", "AD_2"), sep = ",", convert = TRUE)
+
+good_snps <- sarisha %>%
+  filter(GT == "1/1", AD_1 == "0", AD_2 > 20) %>%
+  mutate(CHR_POS = paste(CHR, POS, sep = "_")) %>%
+  select(CHR_POS)
+
+#write_tsv(good_snps, "output_tables/sarisha_good_snps.tsv")
+```
+
+---
+
+## 🎯 4. Filter Pool Datasets
+
+```{r}
+early_snps_filtered <- early_snps %>%
+  rename(CHR = `#CHROM`) %>%
+  mutate(CHR_POS = paste(CHR, POS, sep = "_")) %>%
+  semi_join(good_snps, by = "CHR_POS")
+
+late_snps_filtered <- late_snps %>%
+  rename(CHR = `#CHROM`) %>%
+  mutate(CHR_POS = paste(CHR, POS, sep = "_")) %>%
+  semi_join(good_snps, by = "CHR_POS")
+```
+
+---
+
+## 🧮 5. Calculate Allele Frequencies
+Calculate AO (alternate allele observations) divided by DP (total observation counts) to get allele frequency
+
+```{r}
+calc_allele_freq <- function(df) {
+  new_df <- df %>%
+    select(CHR_POS, unknown) %>%
+    separate(unknown, into = c(NA, "DP", NA, NA, NA, "AO", NA, NA), sep = ":", convert = TRUE, fill = "right") %>%
+    dplyr::mutate(AO = as.numeric(AO),
+                DP = as.numeric(DP),
+                allele_freq = (AO / DP)
+                )
+  return(new_df)
+}
+
+early_snp_allelefreq <- calc_allele_freq(early_snps_filtered)
+late_snp_allelefreq <- calc_allele_freq(late_snps_filtered)
+
+```
+
+---
+
+## 🧬 6. Combine for Plotting
+
+```{r}
+rapa_chr <- paste0("A0", 1:9) %>% append("A10")
+
+format_for_plot <- function(df, pool_label) {
+  df %>%
+    separate(CHR_POS, into = c("CHR", "POS"), sep = "_") %>%
+    filter(CHR %in% rapa_chr) %>%
+    mutate(pool = pool_label, POSn = as.numeric(POS))
+}
+
+plot_early <- format_for_plot(early_snp_allelefreq, "early")
+plot_late <- format_for_plot(late_snp_allelefreq, "late")
+
+plot_all <- bind_rows(plot_early, plot_late)
+```
+
+---
+
+## 📊 7. Bin SNPs and Calculate Density
+
+```{r}
+breaks <- seq(1, 60281114, 50000)
+labels <- seq(50000, 60281114, 50000)
+
+plot_all_binned <- plot_all %>%
+  mutate(bin = cut(POSn, breaks = breaks, labels = labels))
+
+plot_all_SNP_density <- plot_all_binned %>%
+  group_by(bin, CHR, pool) %>%
+  summarise(SNP_density = mean(allele_freq, na.rm = TRUE), .groups = "drop") %>%
+  filter(!is.na(SNP_density))
+```
+
+---
+
+## 💾 8. Save Binned Data
+
+```{r}
+write_csv(plot_all_binned, "output_tables/plot_all_binned.csv")
+write_csv(plot_all_SNP_density, "output_tables/SNP_density.csv")
+
+#plot_all_binned <- read_csv("output_tables/plot_all_binned.csv")
+#plot_all_SNP_density <- read_csv("output_tables/SNP_density.csv")
+```
+
+---
+
+## 📈 9. Plot SNP Density by Pool and Chromosome
+
+```{r fig.height=20, fig.width=12}
+SNP_density_plot <- plot_all_SNP_density %>%
+  ggplot(aes(x = bin, y = SNP_density, color = pool)) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~CHR, nrow = 5, ncol = 2, scales = "free_x") +
+  theme_classic()+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", alpha = 0.5)
+
+#ggsave("plots/SNP_density_plot_redo.jpg", plot = SNP_density_plot, height = 20, width = 12)
+
+SNP_density_plot
+```
+
+```{r all on one axis fig.height=7, fig.width=25}
+SNP_density_plot <- plot_all_SNP_density %>%
+  ggplot(aes(x = bin, y = SNP_density, colour = pool)) +
+  geom_point(alpha = 0.5) +
+  facet_grid(~CHR, scales = "free_x", space = "free_x", switch = "x") +
+  geom_hline(yintercept = 0.5, linetype = "dashed", alpha = 0.5) +
+  theme_classic()+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.spacing = unit(0.2, "lines"),
+        legend.position = "bottom") +
+  labs(x = "Chromosome",
+       y = "SNP allele frequency")
+
+#ggsave("plots/SNP_density_one_axis.jpg", SNP_density_plot, height = 7, width = 20)
+
+SNP_density_plot
+```
+
+
+---
+
+## 📉 10. Plot Differences Between Pools
+
+```{r fig.height=20, fig.width=12}
+plot_snp_diff <- plot_all_SNP_density %>%
+  pivot_wider(names_from = pool, values_from = SNP_density) %>%
+  mutate(diff_snps = early - late) %>%
+  pivot_longer(cols = c(early, late), names_to = "pool")
+
+plot_snp_diff %>%
+  ggplot(aes(x = bin, y = diff_snps)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_wrap(~CHR, nrow = 5, ncol = 2, scales = "free") +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5)
+
+delta_SNP <- plot_snp_diff %>%
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot() +
+  aes(x = bin, y = diff_snps) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_wrap(~CHR, nrow = 5, ncol = 2, scales = "free_x") +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5)+
+  scale_x_continuous(
+    breaks = seq(0, 6e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")  # Converts bins to Mb
+  )
+
+#ggsave("plots/delta_SNP_redo.jpg", plot = delta_SNP, height = 20, width = 12)
+```
+
+```{r all chr on one axis}
+SNP_delta_one_axis <- plot_snp_diff %>%
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot() +
+  aes(x = bin, y = diff_snps, colour = CHR) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(colour = "black", alpha = 0.3, size = 0.4) +
+  facet_grid(~CHR, scales = "free_x", space = "free_x", switch = "x") +
+  geom_hline(yintercept = 0, linetype = "solid", alpha = 0.7)+
+  geom_hline(yintercept = 0.45, linetype = "dashed", alpha = 0.5)+
+  geom_hline(yintercept = -0.45, linetype = "dashed", alpha = 0.5)+
+  theme_classic()+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.margin = unit(0, "lines"),
+        legend.position = "none") +
+  scale_x_continuous(expand = c(0, 0)) +
+  ylim(-0.6,0.6)+
+  scale_y_continuous(breaks = seq(-0.6, 0.6, by = 0.3))+
+  labs(x = "Chromosome",
+       y = "SNP allele frequency difference (Δ-SNP)")
+  
+ggsave("plots/delta_SNP_one_axis.jpg", plot = SNP_delta_one_axis, height = 7, width = 20)
+
+SNP_delta_one_axis
+```
+
+
+---
+
+
+## Individual SNP delta-index
+
+## 🔎 11. Zoom In on a Chromosome and Identify Strong SNPs
+
+```{r zoom in A01}
+# Zoom in on A01
+
+a01_dsnp <- plot_snp_diff %>%
+  filter(CHR == "A01") %>%
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot() +
+  aes(x = bin, y = diff_snps) +
+  geom_point(alpha = 0.2) +
+  geom_smooth() +
+  geom_hline(yintercept = 0, linetype = "longdash", alpha = 0.5)+
+  geom_hline(yintercept = 0.45, linetype = "dashed", alpha = 0.6, color = "red")+
+  geom_hline(yintercept = -0.45, linetype = "dashed", alpha = 0.6, color = "red")+
+  #annotate("rect", fill = "gray", alpha = 0.3, 
+  #         xmin = -Inf, xmax = Inf,
+  #         ymin = -0.45, ymax = 0.45)+
+  scale_x_continuous(
+    breaks = seq(0, 4e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")  # Converts bins to Mb
+  )+
+  theme_classic()+
+  labs(x = "Chromosome position",
+       y = "Δ-SNP allele frequency")
+
+a01_snp_diff <- plot_all_SNP_density %>%
+  filter(CHR == "A01") %>% 
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot(aes(x = bin, y = SNP_density, colour = pool)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0.5, linetype = "longdash", alpha = 0.5) +
+  theme_classic()+
+  theme(legend.position = "right") +
+  labs(x = "Chromosome position",
+       y = "SNP allele frequency")+
+    scale_x_continuous(
+    breaks = seq(0, 4e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")  # Converts bins to Mb
+  )+
+    scale_colour_manual(values=c("late"="#EE3377",
+                               "early"="#0077BB"))
+
+# Chromosome schematic as rectangle
+snp_table <- read_tsv("output_tables/snp_table.tsv")
+
+genes_a01 <- snp_table %>% 
+  filter(CHR == "A01",
+         IMPACT == "HIGH" | 
+         ATH_NAME == "SUS2") %>% 
+  select(POS, ATH_NAME)
+
+highlight_genes <- c("SUS2","CKL6")
+
+a01_chromo <- ggplot() +
+  geom_rect(aes(xmin = 0, xmax = 4e7, ymin = 0, ymax = 0.5),
+            fill = "white", color = "gray") +
+  geom_segment(data = genes_a01,
+               aes(x = POS, xend = POS, y = 0, yend = 0.5),
+               color = "blue", linewidth = 0.3) +
+    # Highlighted genes in red
+  geom_segment(data = filter(genes_a01, ATH_NAME %in% highlight_genes),
+               aes(x = POS, xend = POS, y = 0, yend = 0.5),
+               color = "red",  linewidth = 0.5) +
+  # Labels above for highlighted genes only
+  geom_text(data = genes_a01 %>% filter(genes_a01$ATH_NAME %in% highlight_genes),
+            aes(x = POS, y = -0.1, label = ATH_NAME),
+            size = 3, vjust = 1,  color = "red", angle = 45, hjust = 1) +
+  theme_minimal()+
+  labs(x = "Chromosome A03", y = NULL)+
+  scale_x_continuous(
+    breaks = seq(0, 4e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(),
+    axis.title.y = element_blank(),
+    axis.line.y = element_blank(),
+    plot.title = element_blank()
+  )+
+    # Use simpler coordinate system
+  coord_cartesian(ylim = c(-0.5, 0.6))
+
+a01_plot <- a01_snp_diff / a01_dsnp / a01_chromo +
+  plot_annotation(title = "ChrA01")
+
+a01_plot
+
+#ggsave("plots/a01_plot.jpg", plot = a01_plot, width = 10, height = 7)
+
+#ggsave("plots/a01_snp_diff.jpg", plot = a01_snp_diff, width = 7, height = 5)
+#ggsave("plots/a01_dsnp.jpg", plot = a01_dsnp, width = 7, height = 5)
+
+snp_table %>% 
+  filter(CHR == "A01",
+         IMPACT == "HIGH" | 
+         ATH_NAME == "SUS2") %>% 
+  select(POS, ATH_NAME) %>% 
+  dplyr::mutate(ATH_copy = NA) %>% 
+  dplyr::mutate(ATH_copy = str_replace(as.character(POS), "6105582", "SUS2"))
+
+```
+
+
+```{r zoom in A02}
+# Zoom in on A02
+
+a02_dsnp <- plot_snp_diff %>%
+  filter(CHR == "A02") %>%
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot() +
+  aes(x = bin, y = diff_snps) +
+  geom_point(alpha = 0.2) +
+  geom_smooth() +
+  geom_hline(yintercept = 0, linetype = "longdash", alpha = 0.5)+
+  geom_hline(yintercept = 0.45, linetype = "dashed", alpha = 0.6, color = "red")+
+  geom_hline(yintercept = -0.45, linetype = "dashed", alpha = 0.6, color = "red")+  scale_x_continuous(
+    breaks = seq(0, 4e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")  # Converts bins to Mb
+  )+
+  theme_classic()+
+  labs(x = "Chromosome position",
+       y = "SNP allele frequency difference (Δ-SNP)")
+
+a02_snp_diff <- plot_all_SNP_density %>%
+  filter(CHR == "A02") %>% 
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot(aes(x = bin, y = SNP_density, colour = pool)) +
+  geom_point(alpha = 0.5) +
+  #facet_grid(~CHR, scales = "free_x", space = "free_x", switch = "x") +
+  geom_hline(yintercept = 0.5, linetype = "longdash", alpha = 0.5) +
+  theme_classic()+
+  theme(legend.position = "bottom") +
+  labs(x = "Chromosome position",
+       y = "SNP allele frequency")+
+    scale_x_continuous(
+    breaks = seq(0, 4e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")  # Converts bins to Mb
+  )+
+      scale_colour_manual(values=c("late"="#EE3377",
+                               "early"="#0077BB"))
+
+a02_plot <- a02_snp_diff / a02_dsnp +
+  plot_annotation(title = "ChrA02")
+
+#ggsave("plots/a02_plot.jpg", plot = a02_plot, width = 10, height = 7)
+
+#ggsave("plots/a02_snp_diff.jpg", plot = a02_snp_diff, width = 7, height = 5)
+#ggsave("plots/a02_dsnp.jpg", plot = a02_dsnp, width = 7, height = 5)
+
+
+# Identify SNPs in A01 with high SNP allele difference
+p045 <- plot_snp_diff %>%
+  filter(CHR == "A01") %>%
+  select(bin, diff_snps) %>%
+  distinct() %>%
+  arrange(desc(diff_snps)) %>%
+  filter(diff_snps > 0.45)
+
+print(p045)
+
+
+# Chromo A02
+genes_a02 <- snp_table %>% 
+  filter(CHR == "A02",
+         IMPACT == "HIGH" | 
+         ATH_NAME == "SUS2") %>% 
+  select(POS, ATH_NAME)
+
+highlight_genes <- c("SUS2","CKL6")
+
+a01_chromo <- ggplot() +
+  geom_rect(aes(xmin = 0, xmax = 4e7, ymin = 0, ymax = 0.5),
+            fill = "white", color = "gray") +
+  geom_segment(data = genes_a01,
+               aes(x = POS, xend = POS, y = 0, yend = 0.5),
+               color = "blue", linewidth = 0.3) +
+    # Highlighted genes in red
+  geom_segment(data = filter(genes_a01, ATH_NAME %in% highlight_genes),
+               aes(x = POS, xend = POS, y = 0, yend = 0.5),
+               color = "red",  linewidth = 0.5) +
+  # Labels above for highlighted genes only
+  geom_text(data = genes_a01 %>% filter(genes_a01$ATH_NAME %in% highlight_genes),
+            aes(x = POS, y = -0.1, label = ATH_NAME),
+            size = 3, vjust = 1,  color = "red", angle = 45, hjust = 1) +
+  theme_minimal()+
+  labs(x = "Chromosome A03", y = NULL)+
+  scale_x_continuous(
+    breaks = seq(0, 4e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(),
+    axis.title.y = element_blank(),
+    axis.line.y = element_blank(),
+    plot.title = element_blank()
+  )+
+    # Use simpler coordinate system
+  coord_cartesian(ylim = c(-0.5, 0.6))
+```
+
+
+```{r Zoom in A03}
+# Zoom in on A03
+
+a03_dsnp <- plot_snp_diff %>%
+  filter(CHR == "A03") %>%
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot() +
+  aes(x = bin, y = diff_snps) +
+  geom_point(alpha = 0.2) +
+  geom_smooth() +
+  geom_hline(yintercept = 0, linetype = "longdash", alpha = 0.5)+
+  geom_hline(yintercept = 0.45, linetype = "dashed", alpha = 0.6, color = "red")+
+  geom_hline(yintercept = -0.45, linetype = "dashed", alpha = 0.6, color = "red")+  scale_x_continuous(
+    breaks = seq(0, 4e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")  # Converts bins to Mb
+  )+
+  theme_classic()+
+  labs(x = "Chromosome position",
+       y = "SNP allele frequency difference (Δ-SNP)")
+
+a03_snp_diff <- plot_all_SNP_density %>%
+  filter(CHR == "A03") %>% 
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot(aes(x = bin, y = SNP_density, colour = pool)) +
+  geom_point(alpha = 0.5) +
+  #facet_grid(~CHR, scales = "free_x", space = "free_x", switch = "x") +
+  geom_hline(yintercept = 0.5, linetype = "longdash", alpha = 0.5) +
+  theme_classic()+
+  theme(legend.position = "bottom") +
+  labs(x = "Chromosome position",
+       y = "SNP allele frequency")+
+    scale_x_continuous(
+    breaks = seq(0, 4e7, by = 5e6), # This is where you define your bin range
+    labels = function(x) paste0(x / 1e6 , " Mb")  # Converts bins to Mb
+  )+
+      scale_colour_manual(values=c("late"="#EE3377",
+                               "early"="#0077BB"))
+
+a03_plot <- a03_snp_diff / a03_dsnp +
+  plot_annotation(title = "ChrA03")
+
+#ggsave("plots/a03_plot.jpg", plot = a03_plot, width = 10, height = 7)
+
+
+#ggsave("plots/a03_snp_diff.jpg", plot = a03_snp_diff, width = 7, height = 5)
+#ggsave("plots/a03_dsnp.jpg", plot = a03_dsnp, width = 7, height = 5)
+```
+
+
+```{r}
+# Load libraries
+library(ggplot2)
+library(dplyr)
+library(patchwork)  # For combining plots
+
+# Simulated gene data
+genes <- data.frame(
+  START = c(5e6, 1.2e7, 1.9e7, 3.1e7),
+  STOP = c(5.2e6, 1.25e7, 2e7, 3.2e7),
+  LABEL = c("Gene1", "Gene2", "Gene3", "Gene4")
+) %>%
+  mutate(MID = (START + STOP)/2)
+
+
+# Δ-SNP plot (your style)
+a03_dsnp <- plot_snp_diff %>%
+  filter(CHR == "A03") %>%
+  ggplot(aes(x = bin, y = diff_snps)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth() +
+  geom_hline(yintercept = 0, linetype = "longdash", alpha = 0.5) +
+  geom_hline(yintercept = 0.45, linetype = "dashed", alpha = 0.6, color = "red") +
+  geom_hline(yintercept = -0.45, linetype = "dashed", alpha = 0.6, color = "red") +
+  scale_x_continuous(
+    limits = c(0, 4e7),
+    breaks = seq(0, 4e7, by = 5e6),
+    labels = function(x) paste0(x / 1e6, " Mb")
+  ) +
+  theme_classic() +
+  labs(x = "Chromosome position", y = "Δ-SNP index")
+
+# Chromosome schematic as rectangle
+a03_chromo <- ggplot() +
+  geom_rect(aes(xmin = 0, xmax = 4e7, ymin = 0, ymax = 0.5),
+            fill = "white", color = "gray") +
+  geom_segment(data = genes,
+               aes(x = MID, xend = MID, y = 0, yend = 0.5),
+               color = "blue", size = 1) +
+  geom_text(data = genes,
+            aes(x = MID, y = 0.6, label = LABEL),
+            size = 3, vjust = 0) +
+  # Use simpler coordinate system
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_void() +
+  labs(title = "Chromosome A03 with Gene Locations") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+# Combine vertically with patchwork
+combined_plot <- a03_chromo / a03_dsnp + plot_layout(heights = c(1, 3))
+
+# Show plot
+print(combined_plot)
+
+```
+
+
+## 12. Sarisha SNP distribution
+
+```{r sarisha SNP}
+sarisha_filtered <- Sarisha_snps_only %>%
+  rename(CHR = `#CHROM`) %>%
+  mutate(CHR_POS = paste(CHR, POS, sep = "_")) %>%
+  semi_join(good_snps, by = "CHR_POS")
+
+calc_allele_freq(sarisha_filtered)
+
+
+```
+```{r}
+# 1. Read in your alternate-parent SNPs
+#alt_snps <- read_tsv("alternate_parent_snps.tsv", col_names = c("Chr", "Pos"))
+
+alt_snps <- good_snps %>% 
+  separate(col = CHR_POS,
+           into = c("Chr","Pos"),
+           sep = "_",
+           remove = T) %>% 
+  dplyr::mutate(Pos = as.numeric(Pos)) %>% 
+  filter(Chr %in% rapa_chr)
+  
+
+# 2. Bin the genome into windows
+bin_size <- 1e6  # 1 Mb bins
+
+snp_bins <- alt_snps %>%
+  mutate(Bin = (Pos %/% bin_size) * bin_size) %>%  # Integer division to assign to bins
+  group_by(Chr, Bin) %>%
+  summarize(SNP_Count = n(), .groups = "drop")
+
+# 3. Plot the SNP density
+snp_density_bar <- ggplot(snp_bins, aes(x = Bin / 1e6, y = SNP_Count, fill = SNP_Count == 0)) +
+  geom_col(width = 1) +
+  scale_fill_manual(values = c("steelblue", "red"), guide = "none") +
+  facet_wrap(~ Chr, scales = "free_x", space = "free_x") +
+  labs(x = element_blank(), y = "SNP count",
+       title = "SNP Density of Sarisha SNPs") +
+  theme_classic() +
+      theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.margin = unit(0.2, "lines")
+      )
+
+snp_density_heat <- ggplot(snp_bins, aes(x = Bin / 1e6, y = 0, fill = SNP_Count)) +
+  geom_tile(height = 0.8, width = 0.8) +
+  scale_fill_viridis_c(option = "plasma", trans = "sqrt") +
+  facet_wrap(~ Chr, scales = "free_x", switch = "x") +
+  scale_x_continuous(
+    breaks = seq(0, max(snp_bins$Bin / 1e6), by = 5))+
+  labs(x = "Chromosome", y = element_blank()) +
+  theme_classic() +
+      theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.margin = unit(0.2, "lines"),
+        legend.position = "none"
+      )
+
+snp_density_plot <- snp_density_bar /
+  snp_density_heat
+
+```
+
+```{r}
+snp_bins %>% 
+  summary()
+```
+
+```{r combine plots}
+snp_density_barheat <- ggplot(snp_bins, aes(x = Bin / 1e6, y = SNP_Count, fill = SNP_Count)) +
+  geom_col(width = 1.2) +
+  scale_fill_viridis_c(option = "plasma", trans = "sqrt") +
+  scale_y_continuous(trans = "sqrt") +
+  scale_y_continuous(
+  trans = "sqrt",
+  breaks = c(1000, 5000))+
+  facet_grid(~ Chr, scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 512, linetype = "dashed", alpha = 0.3)+
+  labs(x = element_blank(), y = "SNP count",
+       title = element_blank()) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+SNP_density_plot <- plot_all_SNP_density %>%
+  ggplot(aes(x = bin, y = SNP_density, colour = pool)) +
+  geom_point(alpha = 0.5) +
+  facet_grid(~CHR, scales = "free_x", space = "free_x", switch = "x") +
+  geom_hline(yintercept = 0.5, linetype = "longdash", alpha = 0.5) +
+  theme_classic()+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.spacing = unit(0.2, "lines"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) +
+  labs(x = element_blank(),
+       y = "SNP allele frequency")
+
+SNP_delta_one_axis <- plot_snp_diff %>%
+  dplyr::mutate(bin = as.numeric(levels(bin))[bin]) %>% 
+  ggplot() +
+  aes(x = bin, y = diff_snps, colour = CHR) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(colour = "black", alpha = 0.3, size = 0.4) +
+  facet_grid(~CHR, scales = "free_x", space = "free_x", switch = "x") +
+  geom_hline(yintercept = 0, linetype = "longdash", alpha = 0.5)+
+  geom_hline(yintercept = 0.45, linetype = "dashed", alpha = 0.6, color = "red")+
+  geom_hline(yintercept = -0.45, linetype = "dashed", alpha = 0.6, color = "red")+
+  theme_classic()+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.spacing = unit(0.2, "lines"),
+        legend.position = "none"
+        ) +
+  scale_x_continuous(expand = c(0, 0)) +
+  ylim(-0.6,0.6)+
+  scale_y_continuous(breaks = seq(-0.6, 0.6, by = 0.3))+
+  labs(x = "Chromosome",
+       y = "Δ-SNP allele frequency")
+  
+
+combine_plot <- snp_density_barheat /
+  SNP_density_plot +
+  SNP_delta_one_axis +
+  plot_layout(widths = c(1, 1, 1), heights = unit(c(1, 5, 5), c('null', 'null', 'null')))+
+  plot_annotation(tag_levels = 'A')
+  
+ggsave("plots/sarisha_snp_density_plot.jpg", combine_plot, height = 8, width = 17)
+```
+
