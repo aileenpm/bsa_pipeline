@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 
 # Usage:
-# ./parse_snpeff_to_genes.sh input_file.tsv output_file.tsv
+# ./make_table.sh input_file.tsv output_file.tsv
 
 # Check input arguments
 if [ "$#" -ne 2 ]; then
