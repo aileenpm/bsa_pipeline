@@ -7,7 +7,7 @@ output: html_document
 
 ---
 
-## 🔁 1. Load Libraries
+## Load Libraries
 
 ```{r}
 library(tidyverse)
@@ -18,7 +18,7 @@ library(patchwork)
 
 ---
 
-## 📥 2. Load Data (Assumes Header Trimmed via `grep -v "##"` Already)
+## Load Data (Header trimmed via `grep -v "##"` already)
 
 ```{r}
 Sarisha_snps_only <- read_tsv("data/new_filtered_vcfs/sarisha_filtered_clean.vcf")
@@ -29,7 +29,7 @@ late_snps <- read_tsv("data/new_filtered_vcfs/late_pool_filtered_clean.vcf")
 
 ---
 
-## 🔍 3. Extract Good SNPs from Sarisha
+## Extract Good SNPs from Sarisha
 
 ```{r}
 sarisha <- Sarisha_snps_only %>%
@@ -48,7 +48,7 @@ good_snps <- sarisha %>%
 
 ---
 
-## 🎯 4. Filter Pool Datasets
+## Filter Pool Datasets
 
 ```{r}
 early_snps_filtered <- early_snps %>%
@@ -64,7 +64,7 @@ late_snps_filtered <- late_snps %>%
 
 ---
 
-## 🧮 5. Calculate Allele Frequencies
+## Calculate Allele Frequencies
 Calculate AO (alternate allele observations) divided by DP (total observation counts) to get allele frequency
 
 ```{r}
@@ -86,7 +86,7 @@ late_snp_allelefreq <- calc_allele_freq(late_snps_filtered)
 
 ---
 
-## 🧬 6. Combine for Plotting
+##  Combine for Plotting
 
 ```{r}
 rapa_chr <- paste0("A0", 1:9) %>% append("A10")
@@ -106,7 +106,7 @@ plot_all <- bind_rows(plot_early, plot_late)
 
 ---
 
-## 📊 7. Bin SNPs and Calculate Density
+## Bin SNPs and Calculate Density
 
 ```{r}
 breaks <- seq(1, 60281114, 50000)
@@ -123,7 +123,7 @@ plot_all_SNP_density <- plot_all_binned %>%
 
 ---
 
-## 💾 8. Save Binned Data
+## Save Binned Data
 
 ```{r}
 write_csv(plot_all_binned, "output_tables/plot_all_binned.csv")
@@ -135,7 +135,7 @@ write_csv(plot_all_SNP_density, "output_tables/SNP_density.csv")
 
 ---
 
-## 📈 9. Plot SNP Density by Pool and Chromosome
+## Plot SNP Density by Pool and Chromosome
 
 ```{r fig.height=20, fig.width=12}
 SNP_density_plot <- plot_all_SNP_density %>%
@@ -174,7 +174,7 @@ SNP_density_plot
 
 ---
 
-## 📉 10. Plot Differences Between Pools
+##  Plot Differences Between Pools
 
 ```{r fig.height=20, fig.width=12}
 plot_snp_diff <- plot_all_SNP_density %>%
@@ -238,7 +238,7 @@ SNP_delta_one_axis
 
 ## Individual SNP delta-index
 
-## 🔎 11. Zoom In on a Chromosome and Identify Strong SNPs
+## Zoom In on a Chromosome and Identify Strong SNPs
 
 ```{r zoom in A01}
 # Zoom in on A01
@@ -562,7 +562,7 @@ calc_allele_freq(sarisha_filtered)
 
 ```
 ```{r}
-# 1. Read in your alternate-parent SNPs
+# 1. Read in alternate-parent SNPs
 #alt_snps <- read_tsv("alternate_parent_snps.tsv", col_names = c("Chr", "Pos"))
 
 alt_snps <- good_snps %>% 
