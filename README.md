@@ -7,7 +7,7 @@ This workflow starts with:
 2. _process_sam.sh/process_sam.slurm & prep_sample.sh_ : Prepping alignment .sam files for variant calling. 
 3. _freebayes.sh_ : Running variant calling on alternative parent alignment using Freebayes [3].
 4. _filter_snps.sh_ : Identify SNPs from alternative parent present in the early and late flowering pools using bcftools isec [4].
-5. _parse_vcf.sh & make_table.sh_ : Custom scripts to parse through annotated SNPs and create a results table with priority for HIGH impact snps. One script was written using Python and the other with Bash.
+5. _parse_vcf.sh & make_table.sh_ : Custom scripts to parse through annotated SNPs and create a results table with priority for HIGH impact snps.
 6. _09-new-snp-allele-freq.Rmd_ : Custom script calculating SNP allele frequencies from early and late pools (SNP-index) and the differences between both pools (delta SNP-index), and data visualisation of SNPs across each chromosome.
 
 References:
