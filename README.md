@@ -10,7 +10,11 @@ This workflow starts with:
 5. _parse_vcf.sh & make_table.sh_ : Custom scripts to parse through annotated SNPs and create a results table with priority for HIGH impact snps.
 6. _09-new-snp-allele-freq.Rmd_ : Custom script calculating SNP allele frequencies from early and late pools (SNP-index) and the differences between both pools (delta SNP-index), and data visualisation of SNPs across each chromosome.
 
-References:
+## Workflow summary
+![](BSA_pipeline.jpg)
+
+
+## References
 1. "A program for annotating and predicting the effects of single nucleotide polymorphisms, SnpEff: SNPs in the genome of Drosophila melanogaster strain w1118; iso-2; iso-3.", Cingolani P, Platts A, Wang le L, Coon M, Nguyen T, Wang L, Land SJ, Lu X, Ruden DM. Fly (Austin). 2012 Apr-Jun;6(2):80-92. PMID: 22728672
 2. Li, H. & Durbin, R., 2009. Fast and accurate short read alignment with Burrows–Wheeler transform. bioinformatics, 25(14), pp.1754–1760.
 3. Garrison E, Marth G. Haplotype-based variant detection from short-read sequencing. arXiv preprint arXiv:1207.3907 [q-bio.GN] 2012
